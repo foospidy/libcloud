@@ -715,7 +715,7 @@ class AzureNodeDriver(NodeDriver):
             data["properties"]["storageProfile"]["osDisk"].update({"diskSizeGB": ex_disk_size})
 
         if ex_customdata:
-            data["properties"]["osProfile"]["customData"] = base64.b64encode(ex_customdata)
+            data["properties"]["osProfile"]["customData"] = base64.b64encode(ex_customdata).decode('utf-8')
 
         data["properties"]["osProfile"]["adminUsername"] = ex_user_name
 
