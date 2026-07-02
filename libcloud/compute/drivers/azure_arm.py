@@ -715,7 +715,7 @@ class AzureNodeDriver(NodeDriver):
             data["properties"]["storageProfile"]["osDisk"].update({"diskSizeGB": ex_disk_size})
 
         if ex_customdata:
-            data["properties"]["osProfile"]["customData"] = base64.b64encode(ex_customdata)
+            data["properties"]["osProfile"]["customData"] = base64.b64encode(ex_customdata).decode('utf-8')
 
         data["properties"]["osProfile"]["adminUsername"] = ex_user_name
 
@@ -1544,9 +1544,11 @@ class AzureNodeDriver(NodeDriver):
             for net in r.object["value"]
         ]
 
-    def ex_create_network_security_group(self, name, resource_group, location=None):
+    def ex_create_network_security_group(
+        self, name, resource_group, location=None, security_rules=None
+    ):
         """
-        Update tags on any resource supporting tags.
+        Create a network security group.
 
         :param name: Name of the network security group to create
         :type name: ``str``
@@ -1558,6 +1560,14 @@ class AzureNodeDriver(NodeDriver):
         :param location: The location at which to create the network security
         group (if None, use default location specified as 'region' in __init__)
         :type location: :class:`.NodeLocation`
+
+        :param security_rules: Optional list of security rule dicts, each shaped
+        like ``{"name": ..., "properties": {...}}`` per the Azure REST API
+        (protocol, access, direction, priority, port/address ranges).
+        :type security_rules: ``list`` of ``dict``
+
+        :return: The newly created network security group
+        :rtype: :class:`.AzureNetworkSecurityGroup`
         """
 
         if location is None:
@@ -1573,9 +1583,18 @@ class AzureNodeDriver(NodeDriver):
         )
         data = {
             "location": location.id,
+            "properties": {
+                "securityRules": security_rules or [],
+            },
         }
-        self.connection.request(
+        r = self.connection.request(
             target, params={"api-version": NSG_API_VERSION}, data=data, method="PUT"
+        )
+        return AzureNetworkSecurityGroup(
+            r.object["id"],
+            r.object["name"],
+            r.object["location"],
+            r.object["properties"],
         )
 
     def ex_delete_network_security_group(self, name, resource_group, location=None):
@@ -1940,7 +1959,7 @@ class AzureNodeDriver(NodeDriver):
         return r.status in [200, 202, 204]
 
     def ex_create_network_interface(
-        self, name, subnet, resource_group, location=None, public_ip=None
+        self, name, subnet, resource_group, location=None, public_ip=None, ex_nsg=None
     ):
         """
         Create a virtual network interface (NIC).
@@ -1961,6 +1980,10 @@ class AzureNodeDriver(NodeDriver):
         :param public_ip: Associate a public IP resource with this NIC
         (optional).
         :type public_ip: :class:`.AzureIPAddress`
+
+        :param ex_nsg: Associate a network security group with this NIC
+        (optional).
+        :type ex_nsg: :class:`.AzureNetworkSecurityGroup`
 
         :return: The newly created NIC
         :rtype: :class:`.AzureNic`
@@ -1996,6 +2019,9 @@ class AzureNodeDriver(NodeDriver):
         if public_ip:
             ip_config = data["properties"]["ipConfigurations"][0]
             ip_config["properties"]["publicIPAddress"] = {"id": public_ip.id}
+
+        if ex_nsg:
+            data["properties"]["networkSecurityGroup"] = {"id": ex_nsg.id}
 
         r = self.connection.request(
             target, params={"api-version": NIC_API_VERSION}, data=data, method="PUT"
